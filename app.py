@@ -3,7 +3,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask_sqlalchemy import SQLAlchemy
 from flask import Flask
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
-import requests
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
@@ -54,8 +53,10 @@ def register():
 
     existing_username = User.query.filter_by(username=username).first()
     existing_email = User.query.filter_by(email=email).first()
-    if existing_username or existing_email:
-        return jsonify({'message': 'User already exists'}), 409 # Conflict
+    if existing_username:
+        return jsonify({'message': 'Username is taken.'}), 409 # Conflict
+    if existing_email:
+        return jsonify({'message': 'Email is already associated with a user.'})
     
     # Create new user
     hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
@@ -84,41 +85,29 @@ def login():
 
     if user and check_password_hash(user.password, password):
         access_token = create_access_token(identity=username)
-        return jsonify(access_token=access_token), 200
+        return jsonify({
+                        'message': 'Login success.',
+                        'access_token': access_token}), 200
     else:
         return jsonify({'message': 'Invalid username or password'}), 401 # Unauthorized
 
-@app.route('/pair_camera', methods=['POST'])
-@jwt_required()
-def pair_camera():
-    existing_user = User.query.get(get_jwt_identity())
+# Soft AP Endpoint - Receives Wi-Fi and Starts Pairing
+# This will be on the actual camera
+@app.route('/camera/setup', methods=['POST'])
+def camera_setup():
     data = request.get_json()
-
-    # Check if user exists
-    if not existing_user:
-        return jsonify({'message': 'Unauthorized access'}), 401
-
-    camera_token = data.get('camera_token')
-
-    # Check for provided camera token
-    if not camera_token:
-        return jsonify({'message': 'Missing camera token'}), 400
     
-    camera = Camera.query.filter_by(token=camera_token).first()
+    if 'ssid' not in data or 'password' not in data or 'pairing_code' not in data:
+        return jsonify({'message': 'Missing required setup data'}), 400
 
-    if not camera or camera.user:
-        return jsonify({'message': 'Invalid or already used pairing token'}), 400
+    # Wi-Fi credentials to be saved on camera for connecting
+    ssid = data['ssid']
+    password = data['password']
+    pairing_code = data['pairing_code']
     
-    camera.user_id = existing_user.id
+    # The camera saves Wi-Fi credentials and attempts to connect (simulation)
+    return jsonify({'message': 'Wi-Fi credentials received. Connecting...'}), 200
 
-    try:
-        db.session.commit()
-
-        return jsonify({'message': 'Camera paired successfully'}), 201
-    
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'message': 'Failed to pair camera', 'error': str(e)}), 500 # Internal Server Error
     
 @app.route('/add_window', methods=['POST'])
 @jwt_required
@@ -162,48 +151,30 @@ def add_window():
         db.session.rollback()
         return jsonify({'message': 'Failed to create window', 'error': str(e)}), 500 # Internal Server Error
 
-
-import base64
-import io
-from PIL import Image
-
-@app.route('handle_image', methods=['POST'])
-@jwt_required
-def handle_image():
-    existing_camera = Camera.query.get(get_jwt_identity())
-
-    if not existing_camera:
+@app.route('/cameras', methods=['GET'])
+@jwt_required()
+def get_cameras():
+    # Get the username (or user identifier) from the JWT token
+    user = User.query.get(get_jwt_identity())
+    
+    # Validate if the user exists
+    if not user:
         return jsonify({'message': 'Unauthorized access'}), 401
+
+    # Retrieve all cameras associated with the user
+    cameras = Camera.query.filter_by(user_id=user.id).all()
     
-    data = request.get_json()
+    # Format the camera data
+    cameras_data = []
+    for camera in cameras:
+        camera_info = {
+            'id': camera.id,
+            'name': camera.name,
+        }
+        cameras_data.append(camera_info)
 
-    if 'image' not in data:
-        return jsonify({'message': 'Missing image data'}), 400
+    return jsonify({'cameras': cameras_data}), 200
 
-    image_base64 = data['image']
-
-    try:
-        # Decode the base64-encoded image
-        image_data = base64.b64decode(image_base64.split(',')[1])
-
-        # Convert the decoded image data to a PIL image object
-        image = Image.open(io.BytesIO(image_data))
-
-        # Use classification model
-        
-        windows = existing_camera.windows
-
-        # check window settings and classifications
-
-        # notify user
-
-        return jsonify({'message': 'Image received and processed'}), 200
-
-    except Exception as e:
-        return jsonify({'message': 'Failed to process image', 'error': str(e)}), 500
-
-
-    
 
 if __name__ == '__main__':
     try:
