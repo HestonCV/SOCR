@@ -5,12 +5,12 @@ class Menu:
         self.server_url = server_url 
         self.nav_stack = ['initial_page']
         self.render_active_page()
-        self.jwt_token = None
+        self.access_token = None
     
-    def back(self):
+    def back(self, optional=None):
         # Remove page from top of stack and render the new active page
         self.nav_stack.pop()
-        self.render_active_page()
+        self.render_active_page(optional)
     
     def forward(self, page, optional=None):
         # Add page to top of stack and render the new active page
@@ -42,18 +42,24 @@ class Menu:
         
     
     def render_active_page(self, optional=None):
-        # Define pages
         pages = {
             'initial_page': self.initial_page,
             'login': self.login_page,
             'register': self.register_page,
             'main_menu': self.main_menu_page,
             'create_window': self.create_window_page,
-            'select_camera': self.select_camera_page,
+            'select_camera_add': self.select_camera_add_page,
+            'select_camera_view': self.select_camera_view_page,
+            'view_windows': self.view_windows_page,
+            'select_camera_alert': self.select_camera_alert_page,
+            'select_window_alert': self.select_window_alert_page,
+            'create_alert': self.create_alert_page,
+            'select_camera_view_alerts': self.select_camera_view_alerts_page,  # New page for selecting camera for viewing alerts
+            'select_window_view_alerts': self.select_window_view_alerts_page,  # New page for selecting window for viewing alerts
+            'view_alerts': self.view_alerts_page  # New page for viewing alerts
         }
 
         print('\n\n----------------------------------------\n')
-        # Render page from top of stack
         if len(self.nav_stack) > 0:
             active_page = self.nav_stack[-1]
             if optional:
@@ -112,6 +118,7 @@ class Menu:
             json_response = response.json()
             print(json_response['message'])
             if response.status_code == 200:
+                self.access_token = json_response['access_token']
                 self.forward('main_menu')
             else:
                 process_input()
@@ -152,17 +159,23 @@ class Menu:
         process_input()
 
     def main_menu_page(self):
-
         def process_selection():
-            # Get selection
             while True:
                 selection = input('|- Enter your selection: ')
                 selection = selection.strip().lower()
 
                 if selection == '1': 
-                    self.forward('select_camera')
+                    self.forward('select_camera_add')
                     return
-                
+                elif selection == '2':
+                    self.forward('select_camera_view')
+                    return
+                elif selection == '3':
+                    self.forward('select_camera_alert')
+                    return
+                elif selection == '4':
+                    self.forward('select_camera_view_alerts')
+                    return
                 elif selection == 'b':
                     self.nav_stack = ['initial_page']
                     self.render_active_page()
@@ -173,11 +186,14 @@ class Menu:
         # Render Main Menu UI
         self.render_page_header(header_message="Main Menu")
         print('|----- 1. Create Window')
+        print('|----- 2. View Windows')
+        print('|----- 3. Add Alert')  
+        print('|----- 4. View Alerts')  # New option for viewing alerts
         process_selection()
     
-    def create_window_page(self, camera_name):
+    def create_window_page(self, camera):
         def process_input():
-            name = input("|- Enter the windows name: ")
+            name = input("|- Enter the window name: ")
             if name.lower() == 'b':
                 self.back()
                 return
@@ -197,21 +213,44 @@ class Menu:
             if bottom_right_y.lower() == 'b':
                 self.back()
                 return
-            # TODO: send to server and await response. 
-            response = True
-            if response:
-                print('Window creation successful, alert set.')
-                self.back()
 
-        self.render_page_header(header_message=f'Create Window: {camera_name}')
+            data = {
+                'name': name,
+                'top_left_x': top_left_x,
+                'top_left_y': top_left_y,
+                'bottom_right_x': bottom_right_x,
+                'bottom_right_y': bottom_right_y,
+                'camera_id': camera['id']
+            }
+
+            headers = {'Authorization': f'Bearer {self.access_token}'}
+
+            response = requests.post(url=self.server_url + '/add_window', json=data, headers=headers)
+            if response:
+                json_response = response.json()
+                print(json_response['message'])
+
+                if response.status_code == 201:
+                    self.back()
+                else:
+                    process_input()
+            else:
+                print('Error reaching server')
+                process_input()
+
+        self.render_page_header(header_message=f'Create Window: {camera["name"]}')
         process_input()
 
-    def select_camera_page(self):
+    def select_camera_add_page(self):
         def process_input():
-            cameras = ['camera1', 'camera2', 'camera3']
+            headers = {'Authorization': f'Bearer {self.access_token}'}
+            response = requests.get(url=self.server_url + '/cameras', headers=headers)
+            json_response = response.json()
+        
+            cameras = json_response['cameras']
 
             for index, camera in enumerate(cameras):
-                print(f'|----- {index+1}. {camera}')
+                print(f'|----- {index+1}. {camera["name"]}')
 
             while True:
                 selection = input('|- Enter your selection: ')
@@ -230,8 +269,236 @@ class Menu:
                 else:
                     print('|----- Invalid Selection.')
 
-        self.render_page_header(header_message='Create Window')
+        self.render_page_header(header_message='Create Window: Select Camera')
         process_input()
+
+    def select_camera_view_page(self):
+        def process_input():
+            headers = {'Authorization': f'Bearer {self.access_token}'}
+            response = requests.get(url=self.server_url + '/cameras', headers=headers)
+            json_response = response.json()
+        
+            cameras = json_response['cameras']
+
+            for index, camera in enumerate(cameras):
+                print(f'|----- {index+1}. {camera["name"]}')
+
+            while True:
+                selection = input('|- Enter your selection: ')
+                if selection == 'b':
+                    self.back()
+                    return
+                
+                selection = int(selection.strip().lower())
+                if selection > 0 and selection <= len(cameras):
+                    # TODO: use the camera information to handle the window page correctly
+                    self.forward('view_windows', cameras[selection-1])
+                    break
+                elif selection == 'b':
+                    self.back()
+                    return
+                else:
+                    print('|----- Invalid Selection.')
+
+        self.render_page_header(header_message='View Windows: Select Camera')
+        process_input()
+    
+    def view_windows_page(self, camera):
+        def process_input():
+            headers = {'Authorization': f'Bearer {self.access_token}'}
+            response = requests.get(url=self.server_url + f'/cameras/{camera["id"]}/windows', headers=headers)
+            json_response = response.json()
+        
+            windows = json_response['windows']
+
+            for index, window in enumerate(windows):
+                print(f'|----- {window["name"]}: ({window["top_left_x"]}, {window["top_left_y"]}) ({window["bottom_right_x"]}, {window["bottom_right_y"]})')
+
+            while True:
+                selection = input('|- Enter your selection: ')
+                if selection == 'b':
+                    self.back()
+                    return
+
+        self.render_page_header(header_message='View Windows: Select Camera')
+        process_input()
+    
+    def select_camera_alert_page(self):
+        def process_input():
+            headers = {'Authorization': f'Bearer {self.access_token}'}
+            response = requests.get(url=self.server_url + '/cameras', headers=headers)
+            json_response = response.json()
+        
+            cameras = json_response['cameras']
+
+            for index, camera in enumerate(cameras):
+                print(f'|----- {index+1}. {camera["name"]}')
+
+            while True:
+                selection = input('|- Enter your selection: ')
+                if selection == 'b':
+                    self.back()
+                    return
+                
+                selection = int(selection.strip().lower())
+                if selection > 0 and selection <= len(cameras):
+                    self.forward('select_window_alert', cameras[selection-1])
+                    break
+                else:
+                    print('|----- Invalid Selection.')
+
+        self.render_page_header(header_message='Add Alert: Select Camera')
+        process_input()
+
+    def select_window_alert_page(self, camera):
+        def process_input():
+            headers = {'Authorization': f'Bearer {self.access_token}'}
+            response = requests.get(url=self.server_url + f'/cameras/{camera["id"]}/windows', headers=headers)
+            json_response = response.json()
+        
+            windows = json_response['windows']
+
+            for index, window in enumerate(windows):
+                print(f'|----- {index+1}. {window["name"]}: ({window["top_left_x"]}, {window["top_left_y"]}) ({window["bottom_right_x"]}, {window["bottom_right_y"]})')
+
+            while True:
+                selection = input('|- Enter your selection: ')
+                if selection == 'b':
+                    self.back()
+                    return
+
+                selection = int(selection.strip().lower())
+                if selection > 0 and selection <= len(windows):
+                    self.forward('create_alert', windows[selection-1])
+                    break
+                else:
+                    print('|----- Invalid Selection.')
+
+        self.render_page_header(header_message=f'Add Alert: Select Window for Camera {camera["name"]}')
+        process_input()
+
+    def create_alert_page(self, window):
+        def process_input():
+            condition = input("|- Enter the alert condition (<, >, <=, >=): ")
+            if condition.lower() == 'b':
+                self.back(window)
+                return
+            threshold_value = input("|- Enter the threshold value: ")
+            if threshold_value.lower() == 'b':
+                self.back(window)
+                return
+            
+            data = {
+                'condition': condition,
+                'threshold_value': float(threshold_value),
+            }
+
+            headers = {'Authorization': f'Bearer {self.access_token}'}
+            response = requests.post(url=self.server_url + f'/windows/{window["id"]}/alerts', json=data, headers=headers)
+            
+            if response:
+                json_response = response.json()
+                print(json_response['message'])
+                if response.status_code == 201:
+                    self.back(window)
+                else:
+                    process_input()
+            else:
+                print('Error reaching server')
+                process_input()
+
+        self.render_page_header(header_message=f'Create Alert for Window: {window["name"]}')
+        process_input()
+
+
+    def select_camera_view_alerts_page(self):
+        def process_input():
+            headers = {'Authorization': f'Bearer {self.access_token}'}
+            response = requests.get(url=self.server_url + '/cameras', headers=headers)
+            json_response = response.json()
+        
+            cameras = json_response['cameras']
+
+            for index, camera in enumerate(cameras):
+                print(f'|----- {index+1}. {camera["name"]}')
+
+            while True:
+                selection = input('|- Enter your selection: ')
+                if selection == 'b':
+                    self.back()
+                    return
+                
+                selection = int(selection.strip().lower())
+                if selection > 0 and selection <= len(cameras):
+                    self.forward('select_window_view_alerts', cameras[selection-1])
+                    break
+                else:
+                    print('|----- Invalid Selection.')
+
+        self.render_page_header(header_message='View Alerts: Select Camera')
+        process_input()
+
+    def select_window_view_alerts_page(self, camera):
+        def process_input():
+            headers = {'Authorization': f'Bearer {self.access_token}'}
+            response = requests.get(url=self.server_url + f'/cameras/{camera["id"]}/windows', headers=headers)
+            json_response = response.json()
+        
+            windows = json_response['windows']
+
+            for index, window in enumerate(windows):
+                print(f'|----- {index+1}. {window["name"]}: ({window["top_left_x"]}, {window["top_left_y"]}) ({window["bottom_right_x"]}, {window["bottom_right_y"]})')
+
+            while True:
+                selection = input('|- Enter your selection: ')
+                if selection == 'b':
+                    self.back()
+                    return
+
+                selection = int(selection.strip().lower())
+                if selection > 0 and selection <= len(windows):
+                    self.forward('view_alerts', windows[selection-1])
+                    break
+                else:
+                    print('|----- Invalid Selection.')
+
+        self.render_page_header(header_message=f'View Alerts: Select Window for Camera {camera["name"]}')
+        process_input()
+
+    def view_alerts_page(self, window):
+        def process_input():
+            headers = {'Authorization': f'Bearer {self.access_token}'}
+            response = requests.get(url=self.server_url + f'/windows/{window["id"]}/alerts', headers=headers)
+            
+            # Check if the response is successful and contains JSON data
+            if response.status_code == 200:
+                try:
+                    json_response = response.json()
+                    alerts = json_response.get('alerts', [])
+
+                    if not alerts:
+                        print('|----- No alerts set for this window.')
+                    else:
+                        print('|----- Alerts for window:', window["name"])
+                        for index, alert in enumerate(alerts):
+                            print(f'|----- Alert {index+1}: Condition: {alert["condition"]} {alert["threshold_value"]}')
+
+                except ValueError:
+                    print('|----- Failed to retrieve alerts: Invalid server response')
+            else:
+                print(f'|----- Error {response.status_code}: Could not retrieve alerts for this window.')
+
+            while True:
+                selection = input('|- (B/b) Back to previous menu: ')
+                if selection.lower() == 'b':
+                    self.back()
+                    return
+
+        self.render_page_header(header_message=f'View Alerts for Window: {window["name"]}')
+        process_input()
+
+
+
 
 
 if __name__ == '__main__':

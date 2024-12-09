@@ -1,7 +1,7 @@
 
 from app import app, db, Camera
 
-camera = Camera(token='234')
+camera = Camera(token='123')
 
 try:
     with app.app_context():
